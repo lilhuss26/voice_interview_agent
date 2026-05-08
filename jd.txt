@@ -1,0 +1,41 @@
+Location: Remote / Hybrid
+Type: Full-time
+
+Role Overview:
+We are seeking a versatile AI Engineer to design, develop, and deploy production-ready AI solutions. The ideal candidate will bridge the gap between machine learning research and software engineering, building scalable backends and integrating Large Language Models (LLMs) into functional business applications. You will be responsible for the entire lifecycle of AI features, from data ingestion and prompt engineering to API development and cloud deployment.
+
+Key Responsibilities:
+
+Design and implement Retrieval-Augmented Generation (RAG) systems and agentic workflows to solve complex business problems.
+
+Develop robust backends and RESTful APIs to serve AI models and manage data flow.
+
+Optimize LLM performance through advanced prompt engineering, fine-tuning, or architectural improvements.
+
+Manage data pipelines, including data extraction, transformation, and storage in relational and vector databases.
+
+Collaborate with cross-functional teams to integrate AI capabilities into existing products and platforms.
+
+Stay current with the rapidly evolving AI landscape and evaluate new tools, models, and frameworks for production use.
+
+Required Qualifications:
+
+Bachelor’s or Master’s degree in Computer Science, Artificial Intelligence, or a related technical field.
+
+Proficiency in Python and experience with AI frameworks such as LangChain, LlamaIndex, or Haystack.
+
+Strong understanding of LLMs, embedding models, and vector stores (e.g., Pinecone, Milvus, Weaviate).
+
+Solid experience in backend development using frameworks like FastAPI, Flask, or Django.
+
+Familiarity with database management (SQL and NoSQL) and data processing tools.
+
+Experience with containerization (Docker) and cloud service providers (AWS, Azure, or GCP).
+
+Preferred Skills:
+
+Experience building and deploying autonomous AI agents or multi-agent systems.
+
+Knowledge of DevOps practices and CI/CD pipelines.
+
+Contributions to open-source AI projects or a strong portfolio of personal AI implementations.
