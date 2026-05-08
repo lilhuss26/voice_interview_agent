@@ -1,7 +1,7 @@
 from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.graph import StateGraph, START, END
 from src.models import ResumeDetails, JobDescription, InterviewPlan
-from src.planner.states import PlannerState
+from src.subagents.planner.states import PlannerState
 
 
 class PlannerAgent:
@@ -49,7 +49,6 @@ class PlannerAgent:
         graph.add_edge(START, "parse_resume")
         graph.add_edge(START, "parse_jd")
 
-        # create_plan waits for both to finish (fan-in)
         graph.add_edge("parse_resume", "create_plan")
         graph.add_edge("parse_jd", "create_plan")
 

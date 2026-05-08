@@ -1,6 +1,6 @@
 from langgraph.graph import StateGraph, START, END
 from src.Supervisor.states import SupervisorState
-from src.planner.nodes import PlannerAgent
+from src.subagents.planner.PlannerAgent import PlannerAgent
 
 
 class Supervisor:

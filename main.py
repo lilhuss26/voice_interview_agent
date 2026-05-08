@@ -1,10 +1,10 @@
 from src.Supervisor.graph import Supervisor
-from llm import mercury
+from config.llm import mercury
 
-with open("resume.txt", "r") as f:
+with open("input/resume.txt", "r") as f:
     resume = f.read()
 
-with open("jd.txt", "r") as f:
+with open("input/jd.txt", "r") as f:
     jd = f.read()
 
 supervisor = Supervisor(llm=mercury)
