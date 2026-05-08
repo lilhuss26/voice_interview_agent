@@ -14,7 +14,7 @@ class Supervisor:
         graph.add_node("planner", planner)
 
         graph.add_edge(START, "planner")
-        graph.add_edge("planner", END)  # more agents will be chained here
+        graph.add_edge("planner", END)
 
         return graph.compile()
 
