@@ -25,6 +25,7 @@ while True:
     # The value passed to interrupt() is the question text
     question = state.tasks[0].interrupts[0].value
     print(f"\nInterviewer: {question}")
+
     answer = input("You: ")
 
     graph.invoke(Command(resume=answer), config=config)

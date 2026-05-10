@@ -36,4 +36,5 @@ class EvaluatorAgent:
         return {
             "evaluation_history": [entry],
             "conversation_history": [{"question": state["current_question"], "answer": state["last_answer"]}],
+            "current_question_index": state.get("current_question_index", 0) + 1,
         }

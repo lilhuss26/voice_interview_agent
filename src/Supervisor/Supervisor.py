@@ -14,19 +14,28 @@ def human_node(state: SupervisorState) -> dict:
     return {"last_answer": answer}
 
 
+def skip_node(state: SupervisorState) -> dict:
+    return {
+        "current_question_index": state.get("current_question_index", 0) + 1,
+        "conversation_history": [{"question": state["current_question"], "answer": "[skipped]"}],
+    }
+
+
 def route(state: SupervisorState) -> str:
     if state["answer_type"] == "normal_answer":
         return "evaluator"
     elif state["answer_type"] == "end_interview":
         return "final_report"
-    else:  # clarification or skip
+    elif state["answer_type"] == "skip":
+        return "skip"
+    else:  # clarification
         return "interviewer"
 
 
 def continue_decision(state: SupervisorState) -> str:
-    answered = len(state.get("conversation_history", []))
-    limit = state["interview_plan"].estimated_question_count
-    if answered >= limit:
+    index = state.get("current_question_index", 0)
+    plan = state["interview_plan"]
+    if index >= len(plan.planned_questions) or index >= plan.estimated_question_count:
         return "final_report"
     return "interviewer"
 
@@ -48,6 +57,7 @@ class Supervisor:
         graph.add_node("interviewer", interviewer.interview)
         graph.add_node("human", human_node)
         graph.add_node("router", router.router)
+        graph.add_node("skip", skip_node)
         graph.add_node("evaluator", evaluator.evaluate)
         graph.add_node("final_report", report.final_report)
         graph.add_node("note_maker", report.note_maker)
@@ -59,8 +69,10 @@ class Supervisor:
         graph.add_conditional_edges("router", route, {
             "evaluator": "evaluator",
             "final_report": "final_report",
-            "interviewer": "interviewer"
+            "interviewer": "interviewer",
+            "skip": "skip",
         })
+        graph.add_edge("skip", "interviewer")
         graph.add_conditional_edges("evaluator", continue_decision, {
             "final_report": "final_report",
             "interviewer": "interviewer"

@@ -12,6 +12,7 @@ class SupervisorState(TypedDict):
 
     conversation_history: Annotated[list[dict], operator.add]
     current_question: str
+    current_question_index: int
     last_answer: str
     answer_type: str
     evaluation_history: Annotated[list[dict], operator.add]
