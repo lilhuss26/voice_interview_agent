@@ -4,7 +4,7 @@ from typing import Literal
 
 class InitialInput(BaseModel):
     resume: str
-    job_description: list[str]
+    job_description: str
 
 
 class ResumeDetails(BaseModel):
