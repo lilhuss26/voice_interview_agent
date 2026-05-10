@@ -1,5 +1,6 @@
 from src.Supervisor.Supervisor import Supervisor
 from config.llm import mercury
+from config.voice import speak, listen
 from langgraph.types import Command
 
 with open("input/resume.txt", "r") as f:
@@ -24,9 +25,9 @@ while True:
 
     # The value passed to interrupt() is the question text
     question = state.tasks[0].interrupts[0].value
-    print(f"\nInterviewer: {question}")
+    speak(question)
 
-    answer = input("You: ")
+    answer = listen()
 
     graph.invoke(Command(resume=answer), config=config)
 
