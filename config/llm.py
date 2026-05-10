@@ -1,21 +1,21 @@
-from langchain.chat_models import init_chat_model
-from os import getenv
 from dotenv import load_dotenv
-
 from pydantic import SecretStr
 import os
 from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
+
 load_dotenv()
-
-api_key = os.getenv("INCEPTION_API_KEY")
-if not api_key:
-    raise ValueError("Missing required environment variable: INCEPTION_API_KEY must be set")
-
 
 mercury = ChatOpenAI(
     model="mercury-2",
     temperature=0,
-    api_key=SecretStr(api_key),
+    api_key=SecretStr(os.getenv("INCEPTION_API_KEY")),
     base_url="https://api.inceptionlabs.ai/v1"
+)
+
+haiku = ChatAnthropic(
+    model="claude-haiku-4-5-20251001",
+    temperature=0,
+    api_key=os.getenv("ANTHROPIC_API_KEY")
 )
 

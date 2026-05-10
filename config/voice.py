@@ -3,6 +3,7 @@ import os
 import tempfile
 
 import edge_tts
+import numpy as np
 import pygame
 import sounddevice as sd
 from faster_whisper import WhisperModel
@@ -30,15 +31,40 @@ def speak(text: str):
 
 
 def listen() -> str:
-    print("You (speak, then press Enter to stop): ", end="", flush=True)
-    fs = 44100
-    duration = 30
-    recording = sd.rec(int(duration * fs), samplerate=fs, channels=1, dtype="int16")
-    input()
-    sd.stop()
+    SAMPLE_RATE = 16000
+    SILENCE_THRESHOLD = 0.02
+    SILENCE_DURATION = 1.5
+
+    print("\nYou (speak now...): ", end="", flush=True)
+
+    chunks = []
+    silence_frames = 0
+    started = False
+    done = False
+    silence_limit = int(SILENCE_DURATION * SAMPLE_RATE)
+
+    def callback(indata, frames, time, status):
+        nonlocal silence_frames, started, done
+        if done:
+            return
+        rms = np.sqrt(np.mean(indata.astype(np.float32) ** 2)) / 32768
+        chunks.append(indata.copy())
+        if rms > SILENCE_THRESHOLD:
+            started = True
+            silence_frames = 0
+        elif started:
+            silence_frames += frames
+            if silence_frames >= silence_limit:
+                done = True
+
+    with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="int16", callback=callback):
+        while not done:
+            sd.sleep(100)
+
+    recording = np.concatenate(chunks)
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         path = f.name
-    write(path, fs, recording)
+    write(path, SAMPLE_RATE, recording)
     segments, _ = _whisper.transcribe(path)
     os.unlink(path)
     answer = " ".join(seg.text for seg in segments).strip()

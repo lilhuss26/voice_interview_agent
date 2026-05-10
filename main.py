@@ -1,5 +1,5 @@
 from src.Supervisor.Supervisor import Supervisor
-from config.llm import mercury
+from config.llm import haiku
 from config.voice import speak, listen
 from langgraph.types import Command
 
@@ -9,7 +9,7 @@ with open("input/resume.txt", "r") as f:
 with open("input/jd.txt", "r") as f:
     jd = f.read()
 
-supervisor = Supervisor(llm=mercury)
+supervisor = Supervisor(llm=haiku)
 graph = supervisor.build()
 
 config = {"configurable": {"thread_id": "1"}}
