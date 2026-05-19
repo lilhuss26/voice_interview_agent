@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p /home/lilhuss/PycharmProjects/langgraph-study/interview_multi_system/src/subagents/evaluator)",
+      "Bash(mkdir -p /home/lilhuss/PycharmProjects/langgraph-study/interview_multi_system/src/subagents/report)",
+      "Bash(touch /home/lilhuss/PycharmProjects/langgraph-study/interview_multi_system/src/subagents/evaluator/__init__.py)",
+      "Bash(touch /home/lilhuss/PycharmProjects/langgraph-study/interview_multi_system/src/subagents/report/__init__.py)",
+      "Bash(python3 *)"
+    ]
+  }
+}
