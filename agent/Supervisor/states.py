@@ -1,4 +1,4 @@
-from src.models import InterviewPlan,ResumeDetails,JobDescription
+from agent.models import InterviewPlan,ResumeDetails,JobDescription
 from typing import TypedDict, Annotated, Literal
 import operator
 

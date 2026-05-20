@@ -1,5 +1,5 @@
-from typing import TypedDict, Annotated
-from src.models import ResumeDetails,InterviewPlan,JobDescription
+from typing import TypedDict
+from agent.models import ResumeDetails,InterviewPlan,JobDescription
 
 
 class PlannerState(TypedDict):

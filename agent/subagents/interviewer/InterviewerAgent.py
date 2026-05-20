@@ -1,4 +1,4 @@
-from src.Supervisor.states import SupervisorState
+from agent.Supervisor.states import SupervisorState
 
 
 class InterviewerAgent:

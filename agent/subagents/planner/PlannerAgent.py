@@ -1,7 +1,7 @@
 from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.graph import StateGraph, START, END
-from src.models import ResumeDetails, JobDescription, InterviewPlan
-from src.subagents.planner.states import PlannerState
+from agent.models import ResumeDetails, JobDescription, InterviewPlan
+from agent.subagents.planner.states import PlannerState
 
 
 class PlannerAgent:
