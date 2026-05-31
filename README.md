@@ -1,0 +1,151 @@
+# Interview Agent
+
+An AI-powered voice interview system built with LangGraph and Flask. It analyzes a candidate's resume and job description, generates a structured interview plan, conducts a voice interview turn by turn, and produces a final evaluation report.
+
+## Architecture
+
+```
+interview_agent/
+├── agent/                          # LangGraph multi-agent system
+│   ├── Supervisor/                 # Main graph orchestrator
+│   ├── subagents/
+│   │   ├── planner/                # Parses resume + JD, builds interview plan
+│   │   ├── interviewer/            # Generates questions
+│   │   ├── router/                 # Classifies candidate answers
+│   │   ├── evaluator/              # Scores answers
+│   │   └── report/                 # Generates final report + coaching notes
+│   ├── config/
+│   │   ├── llm.py                  # LLM configuration
+│   │   └── voice.py                # Local CLI voice (TTS + STT)
+│   └── models.py                   # Shared Pydantic models
+│
+└── src/api/                        # Flask REST + WebSocket API
+    ├── app.py                      # App factory
+    ├── DTOs.py                     # Marshmallow schemas
+    ├── session_store.py            # In-memory graph session storage
+    ├── routers/
+    │   ├── interview.py            # POST /api/interview/start
+    │   └── report.py              # GET  /api/interview/<session_id>/report
+    ├── sockets/
+    │   └── interview.py            # WebSocket voice turn loop
+    └── services/
+        ├── interview.py            # PDF extraction + graph initialization
+        └── voice.py                # Byte-level TTS + STT for web API
+```
+
+## Setup
+
+```bash
+# System dependency (for local CLI mode only)
+sudo apt install libportaudio2
+
+# Python dependencies
+pip install -r requirments.txt
+```
+
+Set your Anthropic API key in `.env`:
+```
+ANTHROPIC_API_KEY=your_key_here
+```
+
+## Running
+
+```bash
+python run.py
+```
+
+Server starts at `http://localhost:4567`.
+
+## API
+
+### 1. Start Interview
+
+**POST** `/api/interview/start`
+
+Accepts a PDF resume and job description. Runs the planner agent and returns the first interview question.
+
+**Request:** `multipart/form-data`
+| Field | Type | Description |
+|---|---|---|
+| `resume` | file (PDF) | Candidate's resume |
+| `job_description` | string | Job description text |
+
+**Response:**
+```json
+{
+  "session_id": "uuid",
+  "first_question": "Tell me about your experience with..."
+}
+```
+
+---
+
+### 2. Voice Interview (WebSocket)
+
+**Connect:** `ws://localhost:4567`
+
+#### Events (client → server)
+
+**`join`** — start receiving questions for a session
+```json
+{ "session_id": "uuid" }
+```
+
+**`answer`** — send a recorded answer as audio bytes
+```json
+{ "session_id": "uuid", "audio": "<WAV bytes>" }
+```
+
+#### Events (server → client)
+
+**`question`** — next interview question as MP3 audio bytes
+```json
+{ "audio": "<MP3 bytes>" }
+```
+
+**`finished`** — interview complete, fetch the report
+```json
+{}
+```
+
+**`error`** — something went wrong
+```json
+{ "message": "..." }
+```
+
+---
+
+### 3. Get Report
+
+**GET** `/api/interview/<session_id>/report`
+
+Returns the final evaluation report and coaching notes. Only has data after the `finished` WebSocket event is received.
+
+**Response:**
+```json
+{
+  "final_report": { ... },
+  "coaching_notes": { ... }
+}
+```
+
+## Interview Flow
+
+```
+POST /start
+    └── Planner parses resume + JD
+    └── Returns session_id + first_question
+
+WS join(session_id)
+    └── Server sends question audio
+
+WS answer(audio)  ←──────────────────┐
+    └── STT transcribes audio         │
+    └── Router classifies answer      │
+    └── Evaluator scores answer       │
+    └── Server sends next question ───┘
+        or emits "finished"
+
+GET /report
+    └── Returns final_report + coaching_notes
+```
