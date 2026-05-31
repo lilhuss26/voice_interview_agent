@@ -6,3 +6,7 @@ class InterviewStartRequest(Schema):
 class StartInterviewResponse(Schema):
     session_id = fields.Str()
     first_question = fields.Str()
+
+class ReportResponse(Schema):
+    final_report = fields.Dict()
+    coaching_notes = fields.Dict()
