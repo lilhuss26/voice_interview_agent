@@ -19,18 +19,29 @@ interview_agent/
 │   │   └── voice.py                # Local CLI voice (TTS + STT)
 │   └── models.py                   # Shared Pydantic models
 │
-└── src/api/                        # Flask REST + WebSocket API
-    ├── app.py                      # App factory
-    ├── DTOs.py                     # Marshmallow schemas
-    ├── session_store.py            # In-memory graph session storage
-    ├── routers/
-    │   ├── interview.py            # POST /api/interview/start
-    │   └── report.py              # GET  /api/interview/<session_id>/report
-    ├── sockets/
-    │   └── interview.py            # WebSocket voice turn loop
-    └── services/
-        ├── interview.py            # PDF extraction + graph initialization
-        └── voice.py                # Byte-level TTS + STT for web API
+├── src/api/                        # Flask REST + WebSocket API
+│   ├── app.py                      # App factory
+│   ├── DTOs.py                     # Marshmallow schemas
+│   ├── session_store.py            # In-memory graph session storage
+│   ├── routers/
+│   │   ├── interview.py            # POST /api/interview/start
+│   │   └── report.py              # GET  /api/interview/<session_id>/report
+│   ├── sockets/
+│   │   └── interview.py            # WebSocket voice turn loop
+│   └── services/
+│       ├── interview.py            # PDF extraction + graph initialization
+│       └── voice.py                # Byte-level TTS + STT for web API
+│
+├── ui/                             # Flask-served browser UI
+│   ├── index.html                  # Candidate interview interface
+│   ├── styles.css                  # Responsive visual design
+│   └── app.js                      # REST + Socket.IO voice flow
+│
+└── utils/                          # UI result screenshots
+    ├── Home.png
+    ├── live_interview.png
+    ├── report_1.png
+    └── report_2.png
 ```
 
 ## Setup
@@ -55,6 +66,34 @@ python run.py
 ```
 
 Server starts at `http://localhost:4567`.
+
+Open the browser UI at:
+
+```text
+http://localhost:4567/
+```
+
+## UI Results
+
+### Home
+
+Upload a resume PDF, paste the job description, and start a live interview.
+
+![Home screen](utils/Home.png)
+
+### Live Interview
+
+The UI plays each generated interviewer question, listens through the microphone, detects speech/silence, and submits the answer audio automatically.
+
+![Live interview screen](utils/live_interview.png)
+
+### Final Report
+
+After the interview finishes, the UI renders the final assessment, overall score, recommendation, score breakdown, strengths, weaknesses, and coaching notes.
+
+![Report summary](utils/report_1.png)
+
+![Report details](utils/report_2.png)
 
 ## API
 

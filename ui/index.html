@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Interview Agent</title>
+    <link rel="stylesheet" href="/ui/styles.css">
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" defer></script>
+    <script src="/ui/app.js" defer></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="hero" id="setupPanel">
+        <nav class="nav">
+          <div class="brand-mark">IA</div>
+          <div class="status-pill" id="connectionStatus">Ready</div>
+        </nav>
+
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <p class="eyebrow">AI Voice Interview</p>
+            <h1>Practice a real interview, live.</h1>
+            <p class="lead">
+              Upload a resume, paste the role, and answer spoken questions naturally.
+              The system listens, evaluates, and prepares a final coaching report.
+            </p>
+            <div class="hero-stats" aria-label="Interview flow">
+              <div><strong>1</strong><span>Resume</span></div>
+              <div><strong>2</strong><span>Live voice</span></div>
+              <div><strong>3</strong><span>Report</span></div>
+            </div>
+          </div>
+
+          <section class="start-card" aria-label="Start interview">
+            <div class="card-heading">
+              <h2>Start Interview</h2>
+              <p>The planner will tailor questions to your resume and the role.</p>
+            </div>
+
+            <form id="startForm" class="form">
+              <label class="field file-field">
+                <span>Resume PDF</span>
+                <input id="resumeInput" name="resume" type="file" accept="application/pdf" required>
+              </label>
+
+              <label class="field">
+                <span>Job Description</span>
+                <textarea id="jobDescriptionInput" name="job_description" rows="9" placeholder="Paste the job description here..." required></textarea>
+              </label>
+
+              <button class="primary" id="startButton" type="submit">Start live interview</button>
+              <p class="hint">Your browser will ask for microphone access before the live session begins.</p>
+            </form>
+          </section>
+        </div>
+      </section>
+
+      <section class="live-stage hidden" id="interviewPanel">
+        <div class="live-header">
+          <div>
+            <p class="eyebrow">Live Session</p>
+            <h2>Speak naturally after each question.</h2>
+            <p id="sessionLabel">Preparing the interview...</p>
+          </div>
+          <div class="timer" id="recordingTimer">00:00</div>
+        </div>
+
+        <section class="interviewer-card">
+          <div class="avatar" aria-hidden="true">
+            <span></span>
+          </div>
+          <div class="question-stack">
+            <span class="label">Interviewer audio</span>
+            <audio id="questionAudio" controls></audio>
+            <p id="questionText" class="question-text"></p>
+          </div>
+        </section>
+
+        <section class="listening-card" id="listeningCard">
+          <div class="pulse-ring" aria-hidden="true">
+            <div class="mic-core"></div>
+          </div>
+          <div>
+            <h3 id="liveStateTitle">Waiting for question</h3>
+            <p id="interviewMessage">The interview will listen automatically after the question audio ends.</p>
+          </div>
+          <div class="meter" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span><span></span>
+          </div>
+        </section>
+      </section>
+
+      <section class="report-stage hidden" id="reportPanel">
+        <div class="report-hero">
+          <div class="report-title">
+            <p class="eyebrow">Final Assessment</p>
+            <h2>Interview Report</h2>
+          </div>
+          <div class="score-card">
+            <div class="score-ring" id="scoreRing">
+              <span id="overallScore">--</span>
+            </div>
+            <div>
+              <strong>Overall score</strong>
+              <small>out of 10</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="report-layout">
+          <section class="report-section summary-card">
+            <h3>Summary</h3>
+            <p id="reportSummary">Loading final assessment...</p>
+          </section>
+
+          <section class="report-section recommendation-card">
+            <h3>Recommendation</h3>
+            <p id="recommendation">--</p>
+          </section>
+
+          <section class="report-section scores-card">
+            <h3>Scores</h3>
+            <div id="dimensionScores" class="score-list"></div>
+          </section>
+
+          <section class="report-section highlights-card">
+            <h3>Strengths</h3>
+            <ul id="strengths"></ul>
+          </section>
+
+          <section class="report-section caution-card">
+            <h3>Weaknesses</h3>
+            <ul id="weaknesses"></ul>
+          </section>
+
+          <section class="report-section">
+            <h3>Improvement Areas</h3>
+            <ul id="improvementAreas"></ul>
+          </section>
+          <section class="report-section">
+            <h3>Study Recommendations</h3>
+            <ul id="studyRecommendations"></ul>
+          </section>
+          <section class="report-section">
+            <h3>Communication Advice</h3>
+            <ul id="communicationAdvice"></ul>
+          </section>
+          <section class="report-section">
+            <h3>Missing Concepts</h3>
+            <ul id="missingConcepts"></ul>
+          </section>
+        </div>
+      </section>
+
+      <div class="toast hidden" id="errorToast" role="alert"></div>
+    </main>
+  </body>
+</html>
