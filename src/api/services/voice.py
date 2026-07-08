@@ -24,7 +24,9 @@ def text_to_audio(text: str) -> bytes:
 
 
 def audio_to_text(audio_bytes: bytes) -> str:
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+    # The browser sends webm/opus (or mp4 on Safari); Whisper/ffmpeg detect the container
+    # from the content, so the file suffix does not need to match.
+    with tempfile.NamedTemporaryFile(suffix=".audio", delete=False) as f:
         f.write(audio_bytes)
         path = f.name
     segments, _ = _whisper.transcribe(path)

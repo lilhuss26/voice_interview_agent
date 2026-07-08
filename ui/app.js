@@ -27,24 +27,28 @@ const els = {
   missingConcepts: document.getElementById("missingConcepts"),
 };
 
-const silenceThreshold = 0.018;
-const silenceLimitMs = 1500;
-const maxAnswerMs = 90000;
-const minSpeechMs = 650;
+// End-of-turn detection tuning.
+const calibrationMs = 400;      // sample ambient noise before we start scoring speech
+const speechFactor = 2.5;       // voice must exceed noiseFloor * this to count as speech
+const minThreshold = 0.012;     // absolute floor so a dead-silent room still needs real speech
+const silenceLimitMs = 1200;    // sustained pause (hangover) that ends the turn
+const maxAnswerMs = 90000;      // hard cap on a single answer
+const minSpeechMs = 500;        // ignore blips shorter than this
 
 let socket = null;
 let sessionId = null;
 let micStream = null;
 let audioContext = null;
 let mediaSource = null;
-let recorderNode = null;
 let analyser = null;
-let silentMonitor = null;
-let recordingChunks = [];
-let recordingSampleRate = 44100;
+let mediaRecorder = null;
+let recordedBlobs = [];
 let recordingStartedAt = 0;
 let speechStartedAt = 0;
 let lastVoiceAt = 0;
+let noiseFloor = 0;
+let calibrating = false;
+let calibrationSamples = [];
 let timerId = null;
 let vadId = null;
 let receivedQuestionCount = 0;
@@ -112,7 +116,9 @@ async function ensureMicrophone() {
     audio: {
       echoCancellation: true,
       noiseSuppression: true,
-      autoGainControl: true,
+      // Automatic gain control constantly renormalizes the mic level, which pushes the
+      // noise floor up during pauses and breaks silence/end-of-turn detection. Keep it off.
+      autoGainControl: false,
     },
   });
 }
@@ -169,7 +175,13 @@ function playQuestionAudio(audio) {
   }
   els.questionAudio.src = url;
   els.questionAudio.play().catch(() => {
-    setLiveState("Question ready", "Press play on the audio control. I will listen automatically when it ends.", "idle");
+    // Autoplay was blocked. Don't strand the mic waiting for an "ended" event that will
+    // never fire: prompt the user to play, and begin listening shortly regardless so they
+    // can still answer.
+    setLiveState("Question ready", "Press play to hear the question. Listening will start automatically.", "idle");
+    window.setTimeout(() => {
+      if (!isCapturing) beginLiveAnswerCapture();
+    }, 1200);
   });
 }
 
@@ -187,63 +199,87 @@ async function beginLiveAnswerCapture() {
 
 function startCapture() {
   stopCapture(false);
-  recordingChunks = [];
+  recordedBlobs = [];
+
+  // AnalyserNode is used only for voice-activity / end-of-turn detection.
   audioContext = new AudioContext();
-  recordingSampleRate = audioContext.sampleRate;
+  if (audioContext.state === "suspended") audioContext.resume();
   mediaSource = audioContext.createMediaStreamSource(micStream);
-  recorderNode = audioContext.createScriptProcessor(4096, 1, 1);
   analyser = audioContext.createAnalyser();
   analyser.fftSize = 1024;
-  silentMonitor = audioContext.createGain();
-  silentMonitor.gain.value = 0;
-
-  recorderNode.onaudioprocess = (event) => {
-    recordingChunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
-  };
-
   mediaSource.connect(analyser);
-  mediaSource.connect(recorderNode);
-  recorderNode.connect(silentMonitor);
-  silentMonitor.connect(audioContext.destination);
+
+  // MediaRecorder does the actual capture. It is far more reliable than ScriptProcessorNode
+  // and produces webm/opus, which the server's Whisper model decodes directly.
+  const mimeType = pickRecorderMime();
+  mediaRecorder = new MediaRecorder(micStream, mimeType ? { mimeType } : undefined);
+  mediaRecorder.ondataavailable = (event) => {
+    if (event.data && event.data.size > 0) recordedBlobs.push(event.data);
+  };
+  mediaRecorder.start();
 
   recordingStartedAt = Date.now();
   speechStartedAt = 0;
   lastVoiceAt = 0;
+  noiseFloor = 0;
+  calibrating = true;
+  calibrationSamples = [];
   isCapturing = true;
   timerId = window.setInterval(updateTimer, 250);
-  vadId = window.setInterval(checkVoiceActivity, 120);
+  vadId = window.setInterval(checkVoiceActivity, 100);
   updateTimer();
-  setLiveState("Listening", "Start speaking. I will submit automatically after you pause.", "listening");
+  setLiveState("Listening", "Calibrating microphone... then start speaking.", "listening");
+}
+
+function pickRecorderMime() {
+  const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
+  if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported) return "";
+  return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+}
+
+function currentRms() {
+  const data = new Float32Array(analyser.fftSize);
+  analyser.getFloatTimeDomainData(data);
+  let sum = 0;
+  for (const sample of data) sum += sample * sample;
+  return Math.sqrt(sum / data.length);
 }
 
 function checkVoiceActivity() {
   if (!analyser || !isCapturing) return;
 
-  const data = new Float32Array(analyser.fftSize);
-  analyser.getFloatTimeDomainData(data);
-  let sum = 0;
-  for (const sample of data) {
-    sum += sample * sample;
-  }
-  const rms = Math.sqrt(sum / data.length);
+  const rms = currentRms();
   const now = Date.now();
 
-  if (rms > silenceThreshold) {
-    if (!speechStartedAt) {
-      speechStartedAt = now;
+  // Phase 1: learn the ambient noise floor so the speech threshold adapts to the room.
+  if (calibrating) {
+    calibrationSamples.push(rms);
+    if (now - recordingStartedAt >= calibrationMs) {
+      calibrationSamples.sort((a, b) => a - b);
+      noiseFloor = calibrationSamples[Math.floor(calibrationSamples.length / 2)] || 0;
+      calibrating = false;
+      setLiveState("Listening", "Start speaking. I will submit automatically after you pause.", "listening");
     }
+    return;
+  }
+
+  const threshold = Math.max(noiseFloor * speechFactor, minThreshold);
+
+  if (rms > threshold) {
+    if (!speechStartedAt) speechStartedAt = now;
     lastVoiceAt = now;
     setLiveState("Listening", "I can hear you. Keep going until your answer is complete.", "speaking");
     return;
   }
 
   if (!speechStartedAt) {
-    if (now - recordingStartedAt > 10000) {
+    if (now - recordingStartedAt > 12000) {
       setLiveState("Listening", "I am still listening. Start your answer when ready.", "listening");
     }
     return;
   }
 
+  // Phase 2: the speaker has talked and then gone quiet long enough -> end of turn.
   const speechDuration = lastVoiceAt - speechStartedAt;
   const silenceDuration = now - lastVoiceAt;
   const totalDuration = now - recordingStartedAt;
@@ -255,23 +291,50 @@ function checkVoiceActivity() {
 }
 
 function finishAndSubmitAnswer() {
-  if (!isCapturing) return;
+  if (!isCapturing || !mediaRecorder) return;
 
-  const samples = mergeBuffers(recordingChunks);
-  stopCapture(false);
+  // Stop scoring immediately so this only fires once, but keep the recorder alive until its
+  // final "stop" event flushes the last chunk.
+  isCapturing = false;
+  if (vadId) window.clearInterval(vadId);
+  if (timerId) window.clearInterval(timerId);
+  vadId = null;
+  timerId = null;
 
-  if (samples.length < recordingSampleRate / 2) {
-    setLiveState("Listening", "I did not catch enough audio. Please answer again after the next prompt.", "listening");
-    beginLiveAnswerCapture();
-    return;
+  const hadSpeech = Boolean(speechStartedAt);
+  const recorder = mediaRecorder;
+  recorder.onstop = async () => {
+    teardownAudioNodes();
+    mediaRecorder = null;
+
+    if (!hadSpeech || !recordedBlobs.length) {
+      setLiveState("Listening", "I did not catch enough audio. Listening again...", "listening");
+      beginLiveAnswerCapture();
+      return;
+    }
+
+    const blob = new Blob(recordedBlobs, { type: recorder.mimeType || "audio/webm" });
+    const buffer = await blob.arrayBuffer();
+    setLiveState("Processing", "Submitting your answer for transcription and evaluation...", "idle");
+    socket.emit("answer", { session_id: sessionId, audio: buffer });
+  };
+
+  try {
+    recorder.stop();
+  } catch (error) {
+    recorder.onstop = null;
+    teardownAudioNodes();
+    mediaRecorder = null;
   }
+}
 
-  const answerAudio = encodeWav(samples, recordingSampleRate);
-  setLiveState("Processing", "Submitting your answer for transcription and evaluation...", "idle");
-  socket.emit("answer", {
-    session_id: sessionId,
-    audio: answerAudio,
-  });
+function teardownAudioNodes() {
+  if (mediaSource) mediaSource.disconnect();
+  if (analyser) analyser.disconnect();
+  if (audioContext && audioContext.state !== "closed") audioContext.close();
+  mediaSource = null;
+  analyser = null;
+  audioContext = null;
 }
 
 function stopCapture(closeStream) {
@@ -280,20 +343,23 @@ function stopCapture(closeStream) {
   vadId = null;
   timerId = null;
 
-  if (recorderNode) {
-    recorderNode.disconnect();
-    recorderNode.onaudioprocess = null;
+  if (mediaRecorder) {
+    // Cancel any pending submit and discard the in-flight recording.
+    mediaRecorder.onstop = null;
+    if (mediaRecorder.state !== "inactive") {
+      try {
+        mediaRecorder.stop();
+      } catch (error) {
+        /* recorder already stopping */
+      }
+    }
+    mediaRecorder = null;
   }
-  if (mediaSource) mediaSource.disconnect();
-  if (silentMonitor) silentMonitor.disconnect();
-  if (audioContext) audioContext.close();
+  recordedBlobs = [];
+
+  teardownAudioNodes();
   if (closeStream) stopMicrophone();
 
-  recorderNode = null;
-  mediaSource = null;
-  analyser = null;
-  silentMonitor = null;
-  audioContext = null;
   isCapturing = false;
   els.recordingTimer.textContent = "00:00";
 }
@@ -372,51 +438,6 @@ function renderList(target, values) {
     const li = document.createElement("li");
     li.textContent = value;
     target.appendChild(li);
-  }
-}
-
-function mergeBuffers(chunks) {
-  const length = chunks.reduce((total, chunk) => total + chunk.length, 0);
-  const merged = new Float32Array(length);
-  let offset = 0;
-  for (const chunk of chunks) {
-    merged.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return merged;
-}
-
-function encodeWav(samples, sampleRate) {
-  const buffer = new ArrayBuffer(44 + samples.length * 2);
-  const view = new DataView(buffer);
-
-  writeString(view, 0, "RIFF");
-  view.setUint32(4, 36 + samples.length * 2, true);
-  writeString(view, 8, "WAVE");
-  writeString(view, 12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true);
-  writeString(view, 36, "data");
-  view.setUint32(40, samples.length * 2, true);
-
-  let offset = 44;
-  for (const sample of samples) {
-    const clamped = Math.max(-1, Math.min(1, sample));
-    view.setInt16(offset, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
-    offset += 2;
-  }
-
-  return buffer;
-}
-
-function writeString(view, offset, value) {
-  for (let i = 0; i < value.length; i += 1) {
-    view.setUint8(offset + i, value.charCodeAt(i));
   }
 }
 
