@@ -5,6 +5,7 @@ const els = {
   startForm: document.getElementById("startForm"),
   resumeInput: document.getElementById("resumeInput"),
   jobDescriptionInput: document.getElementById("jobDescriptionInput"),
+  numQuestionsInput: document.getElementById("numQuestionsInput"),
   startButton: document.getElementById("startButton"),
   connectionStatus: document.getElementById("connectionStatus"),
   sessionLabel: document.getElementById("sessionLabel"),
@@ -54,6 +55,10 @@ let vadId = null;
 let receivedQuestionCount = 0;
 let isCapturing = false;
 
+function log(...args) {
+  console.log("[interview]", ...args);
+}
+
 els.startForm.addEventListener("submit", startInterview);
 els.questionAudio.addEventListener("ended", beginLiveAnswerCapture);
 els.questionAudio.addEventListener("play", () => {
@@ -78,9 +83,14 @@ async function startInterview(event) {
 
   try {
     await ensureMicrophone();
+    let numQuestions = parseInt(els.numQuestionsInput.value, 10);
+    if (!Number.isFinite(numQuestions)) numQuestions = 5;
+    numQuestions = Math.max(3, Math.min(15, numQuestions));
+
     const formData = new FormData();
     formData.append("resume", resume);
     formData.append("job_description", jobDescription);
+    formData.append("num_questions", String(numQuestions));
 
     setStatus("Planning");
     const response = await fetch("/api/interview/start", {
@@ -142,6 +152,7 @@ function connectSocket() {
   });
 
   socket.on("question", ({ audio }) => {
+    log("received question audio | bytes=", normalizeBinary(audio).byteLength || (audio && audio.length));
     receivedQuestionCount += 1;
     if (receivedQuestionCount > 1) {
       els.questionText.textContent = "";
@@ -152,6 +163,7 @@ function connectSocket() {
   });
 
   socket.on("finished", () => {
+    log("interview finished");
     setStatus("Finished");
     stopCapture(false);
     stopMicrophone();
@@ -160,6 +172,7 @@ function connectSocket() {
   });
 
   socket.on("error", ({ message }) => {
+    log("socket error:", message);
     showError(message || "Interview socket error.");
     setLiveState("Error", "An error occurred. Check the message and try again.", "idle");
     stopCapture(false);
@@ -217,6 +230,7 @@ function startCapture() {
     if (event.data && event.data.size > 0) recordedBlobs.push(event.data);
   };
   mediaRecorder.start();
+  log("capture started | mime=", mediaRecorder.mimeType, "| sampleRate=", audioContext.sampleRate);
 
   recordingStartedAt = Date.now();
   speechStartedAt = 0;
@@ -258,6 +272,7 @@ function checkVoiceActivity() {
       calibrationSamples.sort((a, b) => a - b);
       noiseFloor = calibrationSamples[Math.floor(calibrationSamples.length / 2)] || 0;
       calibrating = false;
+      log("calibrated | noiseFloor=", noiseFloor.toFixed(4), "| speechThreshold=", Math.max(noiseFloor * speechFactor, minThreshold).toFixed(4));
       setLiveState("Listening", "Start speaking. I will submit automatically after you pause.", "listening");
     }
     return;
@@ -266,7 +281,10 @@ function checkVoiceActivity() {
   const threshold = Math.max(noiseFloor * speechFactor, minThreshold);
 
   if (rms > threshold) {
-    if (!speechStartedAt) speechStartedAt = now;
+    if (!speechStartedAt) {
+      speechStartedAt = now;
+      log("speech detected | rms=", rms.toFixed(4));
+    }
     lastVoiceAt = now;
     setLiveState("Listening", "I can hear you. Keep going until your answer is complete.", "speaking");
     return;
@@ -308,6 +326,7 @@ function finishAndSubmitAnswer() {
     mediaRecorder = null;
 
     if (!hadSpeech || !recordedBlobs.length) {
+      log("no speech captured -> restarting capture | hadSpeech=", hadSpeech, "| blobs=", recordedBlobs.length);
       setLiveState("Listening", "I did not catch enough audio. Listening again...", "listening");
       beginLiveAnswerCapture();
       return;
@@ -315,6 +334,11 @@ function finishAndSubmitAnswer() {
 
     const blob = new Blob(recordedBlobs, { type: recorder.mimeType || "audio/webm" });
     const buffer = await blob.arrayBuffer();
+    log(
+      "submitting answer | bytes=", buffer.byteLength,
+      "| speechMs=", lastVoiceAt - speechStartedAt,
+      "| totalMs=", Date.now() - recordingStartedAt,
+    );
     setLiveState("Processing", "Submitting your answer for transcription and evaluation...", "idle");
     socket.emit("answer", { session_id: sessionId, audio: buffer });
   };

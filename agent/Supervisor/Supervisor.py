@@ -35,7 +35,10 @@ def route(state: SupervisorState) -> str:
 def continue_decision(state: SupervisorState) -> str:
     index = state.get("current_question_index", 0)
     plan = state["interview_plan"]
-    if index >= len(plan.planned_questions) or index >= plan.estimated_question_count:
+    # Honor the user-requested count directly so an over/under-generated plan cannot run
+    # longer than requested. The interviewer clamps its index if the plan is shorter.
+    requested = state.get("requested_question_count", plan.estimated_question_count)
+    if index >= requested or index >= plan.estimated_question_count:
         return "final_report"
     return "interviewer"
 

@@ -13,6 +13,13 @@ def start_interview_route():
     if not pdf or not job_description:
         return jsonify({"error": "resume and job_description are required"}), 400
 
-    result = start_interview(pdf, job_description)
+    # Clamp the requested question count to a safe range; default to 5 on missing/invalid.
+    try:
+        num_questions = int(request.form.get("num_questions", 5))
+    except (TypeError, ValueError):
+        num_questions = 5
+    num_questions = max(3, min(15, num_questions))
+
+    result = start_interview(pdf, job_description, num_questions)
 
     return jsonify(StartInterviewResponse().dump(result)), 200

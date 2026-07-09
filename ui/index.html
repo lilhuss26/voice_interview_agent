@@ -48,6 +48,11 @@
                 <textarea id="jobDescriptionInput" name="job_description" rows="9" placeholder="Paste the job description here..." required></textarea>
               </label>
 
+              <label class="field">
+                <span>Number of Questions</span>
+                <input id="numQuestionsInput" name="num_questions" type="number" min="3" max="15" value="5" required>
+              </label>
+
               <button class="primary" id="startButton" type="submit">Start live interview</button>
               <p class="hint">Your browser will ask for microphone access before the live session begins.</p>
             </form>

@@ -5,7 +5,7 @@ from agent.config.llm import haiku
 from src.api.session_store import session_store
 
 
-def start_interview(pdf_file, job_description: str) -> dict:
+def start_interview(pdf_file, job_description: str, num_questions: int = 5) -> dict:
     # extract text from PDF
     with pdfplumber.open(pdf_file) as pdf:
         resume = "\n".join(page.extract_text() for page in pdf.pages)
@@ -17,7 +17,14 @@ def start_interview(pdf_file, job_description: str) -> dict:
     config = {"configurable": {"thread_id": session_id}}
 
     # run until first interrupt (planner + first question)
-    graph.invoke({"raw_resume": resume, "raw_job_description": job_description}, config=config)
+    graph.invoke(
+        {
+            "raw_resume": resume,
+            "raw_job_description": job_description,
+            "requested_question_count": num_questions,
+        },
+        config=config,
+    )
 
     # get the question from the interrupt
     state = graph.get_state(config)
