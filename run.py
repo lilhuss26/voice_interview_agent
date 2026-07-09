@@ -1,5 +1,13 @@
+import logging
+
 from src.api.app import create_app
 from src.api.sockets.interview import socketio
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 app = create_app()
 

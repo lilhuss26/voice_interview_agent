@@ -27,15 +27,23 @@ class PlannerAgent:
         return {"job_data": result}
 
     def create_plan(self, state: PlannerState) -> dict:
+        count = state.get("requested_question_count", 5)
         structured_llm = self.llm.with_structured_output(InterviewPlan)
         messages = [
-            SystemMessage(content="You are an expert technical interviewer. Create a structured interview plan based on the candidate's resume and the job requirements."),
+            SystemMessage(content=(
+                "You are an expert technical interviewer. Create a structured interview plan "
+                "based on the candidate's resume and the job requirements. "
+                f"The plan must contain exactly {count} entries in planned_questions."
+            )),
             HumanMessage(content=(
                 f"Candidate profile:\n{state['resume_data'].model_dump_json()}\n\n"
-                f"Job requirements:\n{state['job_data'].model_dump_json()}"
+                f"Job requirements:\n{state['job_data'].model_dump_json()}\n\n"
+                f"Generate exactly {count} interview questions."
             ))
         ]
         result = structured_llm.invoke(messages)
+        # The requested count is authoritative regardless of what the LLM emitted.
+        result.estimated_question_count = count
         return {"interview_plan": result}
 
     def build(self):
