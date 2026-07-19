@@ -37,6 +37,9 @@ interview_agent/
 │   ├── styles.css                  # Responsive visual design
 │   └── app.js                      # REST + Socket.IO voice flow
 │
+├── Dockerfile                      # Container image (see Docker)
+├── docker-compose.yml              # Single-service deployment
+│
 └── utils/                          # UI result screenshots
     ├── Home.png
     ├── live_interview.png
@@ -65,13 +68,39 @@ ANTHROPIC_API_KEY=your_key_here
 python run.py
 ```
 
-Server starts at `http://localhost:4567`.
-
-Open the browser UI at:
+Server starts at `http://localhost:4567`, which also serves the browser UI:
 
 ```text
 http://localhost:4567/
 ```
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | — | Required. Model used for all agents. |
+| `HOST` | `127.0.0.1` | Bind address. Docker sets `0.0.0.0`. |
+| `PORT` | `4567` | Listen port. |
+| `DEBUG` | `1` | Flask debug/reloader. Docker sets `0`. |
+
+## Docker
+
+```bash
+docker compose up --build
+```
+
+Serves on `http://localhost:4567`. The compose service restarts unless stopped
+and has a healthcheck against `/`.
+
+A `.env` file must exist before `docker compose up` — the service declares
+`env_file: .env`, and compose errors out if the file is missing. Create it as
+described in [Setup](#setup), even if the only line is `ANTHROPIC_API_KEY=`.
+
+The image bakes the Whisper `base` weights at build time so the first interview
+doesn't stall on a download, and installs `ffmpeg` (decodes the browser's
+webm/opus answers) plus `libportaudio2`. It runs as a non-root `app` user, and a
+single process serves the REST API, the Socket.IO endpoint, and the static UI on
+one port.
 
 ## UI Results
 

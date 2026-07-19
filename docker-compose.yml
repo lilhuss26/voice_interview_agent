@@ -1,0 +1,16 @@
+services:
+  app:
+    build: .
+    image: voice-interview-agent
+    container_name: voice-interview-agent
+    ports:
+      - "4567:4567"
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4567/')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
