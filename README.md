@@ -37,6 +37,16 @@ interview_agent/
 │   ├── styles.css                  # Responsive visual design
 │   └── app.js                      # REST + Socket.IO voice flow
 │
+├── tests/                          # pytest suite (see Tests)
+│   ├── conftest.py                 # FakeLLM stub + shared fixtures
+│   ├── test_supervisor_routing.py  # Graph routing decisions
+│   ├── test_agents.py              # Interviewer / evaluator / planner logic
+│   ├── test_models.py              # Pydantic validation
+│   ├── test_dtos.py                # Marshmallow schemas
+│   └── test_api.py                 # Flask routes
+│
+├── .github/workflows/tests.yml     # CI: runs pytest on push + PR
+├── pytest.ini                      # pytest config (testpaths, pythonpath)
 ├── Dockerfile                      # Container image (see Docker)
 ├── docker-compose.yml              # Single-service deployment
 │
@@ -143,8 +153,11 @@ Accepts a PDF resume and job description. Runs the planner agent and returns the
 **Request:** `multipart/form-data`
 | Field | Type | Description |
 |---|---|---|
-| `resume` | file (PDF) | Candidate's resume |
-| `job_description` | string | Job description text |
+| `resume` | file (PDF) | Required. Candidate's resume. |
+| `job_description` | string | Required. Job description text. |
+| `num_questions` | integer | Optional. Defaults to 5; clamped to 3–15. A non-numeric value falls back to 5. |
+
+Returns `400` if `resume` or `job_description` is missing.
 
 **Response:**
 ```json
@@ -225,3 +238,32 @@ WS answer(audio)  ←──────────────────┐
 GET /report
     └── Returns final_report + coaching_notes
 ```
+
+## Tests
+
+```bash
+pytest
+```
+
+28 tests, ~5 seconds. The suite is hermetic — no network, no API keys, no model
+downloads — so it covers the deterministic logic only: graph routing
+(`route`, `continue_decision`, `skip_node`), the question-index clamp, the
+planner's authoritative question count, the evaluator's history shapes, Pydantic
+and Marshmallow validation, and the Flask routes.
+
+The LLM agents' outputs, Whisper STT, edge-TTS, and PDF extraction are
+deliberately **not** tested: they are network-bound and non-deterministic, which
+is the wrong shape for a CI gate.
+
+Tests inject a `FakeLLM` stub (`tests/conftest.py`) that implements only
+`with_structured_output(Schema).invoke(messages)` and returns canned responses
+keyed by schema class. It raises on an unstubbed schema rather than silently
+returning `None`.
+
+`tests/conftest.py` also seeds a dummy `ANTHROPIC_API_KEY` via
+`os.environ.setdefault`, since importing `agent.config.llm` requires one.
+`setdefault` means a real local `.env` still wins.
+
+CI runs the same `pytest` invocation on every push to `master` and every pull
+request (`.github/workflows/tests.yml`), on Python 3.12 to match the Docker
+image.
