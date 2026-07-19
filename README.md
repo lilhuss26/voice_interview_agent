@@ -74,6 +74,10 @@ Server starts at `http://localhost:4567`, which also serves the browser UI:
 http://localhost:4567/
 ```
 
+The first interview turn loads the Whisper `base` model (~150MB) on demand and
+caches it for the process lifetime, so that one turn is slower than the rest.
+Running in Docker avoids this — the weights are baked into the image.
+
 ### Environment variables
 
 | Variable | Default | Description |
