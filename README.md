@@ -62,6 +62,10 @@ Set your Anthropic API key in `.env`:
 ANTHROPIC_API_KEY=your_key_here
 ```
 
+This is required to *start* the app, not just to use it: `agent/config/llm.py`
+builds its `ChatAnthropic` client at import time and that client rejects a
+missing key.
+
 ## Running
 
 ```bash
