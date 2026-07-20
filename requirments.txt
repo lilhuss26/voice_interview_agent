@@ -24,5 +24,16 @@ langchain-openai==1.0.1
 pydantic==2.11.5
 python-dotenv==1.2.1
 
+# Email → GitHub issue pipeline (pipeline/, runs as its own service)
+fastapi==0.120.2
+uvicorn[standard]==0.38.0
+google-api-python-client==2.187.0
+google-auth==2.50.0
+google-auth-oauthlib==1.4.0
+PyGithub==2.9.1
+apscheduler==3.11.2
+
 # Test
 pytest==9.0.3
+# fastapi.testclient needs httpx; without it the pipeline tests fail at collection
+httpx==0.28.1

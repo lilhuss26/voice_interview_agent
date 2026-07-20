@@ -1,0 +1,152 @@
+"""SQLite state: the history cursor, dedup claims, and an event log.
+
+A fresh connection per operation, not a shared module-level one: the webhook
+runs on a threadpool and SQLite objects are not portable across threads.
+"""
+
+import os
+import sqlite3
+from contextlib import contextmanager
+from datetime import datetime, timezone
+
+from pipeline.config import get_settings
+
+_LAST_HISTORY_ID = "last_history_id"
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS processed_messages (
+    message_id   TEXT PRIMARY KEY,
+    processed_at TEXT NOT NULL,
+    issue_number INTEGER
+);
+CREATE TABLE IF NOT EXISTS pipeline_state (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS events (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    correlation_id TEXT NOT NULL,
+    stage          TEXT NOT NULL,
+    ts             TEXT NOT NULL,
+    message_id     TEXT,
+    issue_number   INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_events_corr ON events(correlation_id);
+"""
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+@contextmanager
+def connect(settings=None):
+    settings = settings or get_settings()
+    parent = os.path.dirname(settings.db_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    conn = sqlite3.connect(settings.db_path, timeout=10, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=10000")
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def init_db(settings=None) -> None:
+    with connect(settings) as conn:
+        conn.executescript(_SCHEMA)
+
+
+def get_state(key: str, settings=None) -> str | None:
+    with connect(settings) as conn:
+        row = conn.execute(
+            "SELECT value FROM pipeline_state WHERE key = ?", (key,)
+        ).fetchone()
+    return row["value"] if row else None
+
+
+def set_state(key: str, value: str, settings=None) -> None:
+    with connect(settings) as conn:
+        conn.execute(
+            "INSERT INTO pipeline_state(key, value) VALUES(?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, str(value)),
+        )
+
+
+def set_state_if_absent(key: str, value: str, settings=None) -> bool:
+    """Write only when unset. True if this call wrote it.
+
+    Used for the history cursor on startup — clobbering a live cursor on every
+    restart would silently skip whatever arrived in between.
+    """
+    with connect(settings) as conn:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO pipeline_state(key, value) VALUES(?, ?)",
+            (key, str(value)),
+        )
+        return cur.rowcount == 1
+
+
+def get_last_history_id(settings=None) -> int | None:
+    raw = get_state(_LAST_HISTORY_ID, settings)
+    return int(raw) if raw is not None else None
+
+
+def set_last_history_id(value: int, settings=None) -> None:
+    set_state(_LAST_HISTORY_ID, str(value), settings)
+
+
+def claim_message(message_id: str, settings=None) -> bool:
+    """Atomically claim a message. True if this caller won it.
+
+    INSERT OR IGNORE rather than a SELECT-then-INSERT: two overlapping Pub/Sub
+    deliveries would both pass a read check and both open an issue. The row is
+    written BEFORE the issue exists, so issue_number stays NULL until
+    mark_processed — see get_claim() for how a stale claim is recovered.
+    """
+    with connect(settings) as conn:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO processed_messages(message_id, processed_at) "
+            "VALUES(?, ?)",
+            (message_id, _now()),
+        )
+        return cur.rowcount == 1
+
+
+def get_claim(message_id: str, settings=None) -> sqlite3.Row | None:
+    with connect(settings) as conn:
+        return conn.execute(
+            "SELECT message_id, processed_at, issue_number FROM processed_messages "
+            "WHERE message_id = ?",
+            (message_id,),
+        ).fetchone()
+
+
+def mark_processed(message_id: str, issue_number: int | None = None, settings=None) -> None:
+    with connect(settings) as conn:
+        conn.execute(
+            "INSERT INTO processed_messages(message_id, processed_at, issue_number) "
+            "VALUES(?, ?, ?) ON CONFLICT(message_id) DO UPDATE SET "
+            "processed_at = excluded.processed_at, issue_number = excluded.issue_number",
+            (message_id, _now(), issue_number),
+        )
+
+
+def log_event(
+    correlation_id: str,
+    stage: str,
+    message_id: str | None = None,
+    issue_number: int | None = None,
+    settings=None,
+) -> None:
+    with connect(settings) as conn:
+        conn.execute(
+            "INSERT INTO events(correlation_id, stage, ts, message_id, issue_number) "
+            "VALUES(?, ?, ?, ?, ?)",
+            (correlation_id, stage, _now(), message_id, issue_number),
+        )

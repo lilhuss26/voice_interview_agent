@@ -7,3 +7,9 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Pipeline secrets and local state — never commit
+credentials.json
+client_secret_*.json
+token.json
+*.db

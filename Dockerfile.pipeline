@@ -1,0 +1,32 @@
+# Image for the email → GitHub issue pipeline (pipeline/), which runs as its
+# OWN Railway service, separate from the Flask voice-interview app.
+#
+# Deliberately does NOT install ffmpeg/libportaudio2 or bake Whisper weights —
+# none of that is on this service's code path. See ./Dockerfile for the app.
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+RUN useradd --create-home --uid 1000 app && chown app:app /app
+USER app
+
+# One shared requirements file with the Flask app. That pulls a few unused
+# packages into each image, and is the deliberate tradeoff for CI installing a
+# single file and therefore being able to run the pipeline tests.
+COPY --chown=app:app requirments.txt .
+RUN pip install --no-warn-script-location -r requirments.txt
+
+COPY --chown=app:app . .
+
+# DB_PATH should point at a mounted Railway volume (e.g. /data/pipeline.db) so
+# last_history_id and the dedup table survive a redeploy. On ephemeral storage
+# a restart re-seeds the cursor and silently skips whatever arrived meanwhile.
+ENV PORT=8000
+
+EXPOSE 8000
+
+CMD ["sh", "-c", "uvicorn pipeline.app:app --host 0.0.0.0 --port ${PORT:-8000}"]
