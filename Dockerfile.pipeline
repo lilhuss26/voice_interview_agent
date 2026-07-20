@@ -29,4 +29,8 @@ ENV PORT=8000
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "uvicorn pipeline.app:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# `python -m uvicorn`, not the bare `uvicorn` console script. pip installs as
+# the non-root `app` user, which puts entry-point scripts in ~/.local/bin —
+# not on PATH — so the bare command fails with "uvicorn: not found". Going
+# through the interpreter sidesteps PATH entirely.
+CMD ["sh", "-c", "python -m uvicorn pipeline.app:app --host 0.0.0.0 --port ${PORT:-8000}"]

@@ -4,6 +4,7 @@ import base64
 import binascii
 import json
 import logging
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -14,20 +15,49 @@ from pipeline.bridge import run_bridge
 from pipeline.config import get_settings
 from pipeline.storage import db
 
+# Same format as run.py, so both Railway services read alike. Called at import
+# rather than in lifespan(): uvicorn logs its own startup lines before lifespan
+# runs, and without this they would be the only output on a boot that crashes
+# early — exactly the case you most need logs for.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
+
 log = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    log.info("pipeline starting: db=%s repo=%s", settings.db_path, settings.github_repo)
+    log.info(
+        "allowlist has %d sender(s); autowatch=%s",
+        len(settings.allowlist),
+        settings.autowatch,
+    )
+    if not settings.webhook_audience:
+        # A blank audience makes every JWT fail verification, and the symptom
+        # is a silent wall of 401s that looks like a Pub/Sub problem.
+        log.warning("WEBHOOK_AUDIENCE is unset — every webhook call will 401")
+
     db.init_db(settings)
+    log.info("database ready at %s", settings.db_path)
+
     if settings.autowatch:
         # Behind a flag so importing this module in a test never calls Google.
         from pipeline.watch import schedule_watch_renewal, start_watch
 
         start_watch(settings=settings)
         schedule_watch_renewal(settings=settings)
+        log.info("gmail watch registered; renewing daily")
+    else:
+        log.info("autowatch off — set PIPELINE_AUTOWATCH=1 to register the watch")
+
+    log.info("pipeline ready")
     yield
+    log.info("pipeline shutting down")
 
 
 app = FastAPI(title="email-to-issue pipeline", lifespan=lifespan)
@@ -91,9 +121,24 @@ async def gmail_webhook(request: Request, authorization: str | None = Header(def
     email_address, history_id = decode_pubsub_envelope(envelope)
     log.info("notification for %s at history %s", email_address, history_id)
 
+    started = time.monotonic()
     # Synchronous by design: a non-2xx makes Pub/Sub retry, which is the
     # behaviour we want when GitHub or Anthropic is briefly down. Watch the
     # ack deadline — if this starts timing out, move to BackgroundTasks plus
     # an explicit retry table rather than just widening the deadline.
-    run_bridge(history_id)
+    try:
+        run_bridge(history_id)
+    except Exception:
+        # Log before re-raising: the 500 that reaches Pub/Sub carries no detail,
+        # so this traceback is the only record of why the retry will happen.
+        log.exception("bridge failed for history %s", history_id)
+        raise
+
+    # Pub/Sub's default ack deadline is 10s. If this line regularly reports
+    # more than that, the retries you'll see are self-inflicted.
+    log.info(
+        "notification handled in %.2fs (history %s)",
+        time.monotonic() - started,
+        history_id,
+    )
     return None
