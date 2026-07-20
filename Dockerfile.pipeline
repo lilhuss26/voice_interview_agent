@@ -12,13 +12,12 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 RUN useradd --create-home --uid 1000 app && chown app:app /app
-USER app
 
-# One shared requirements file with the Flask app. That pulls a few unused
-# packages into each image, and is the deliberate tradeoff for CI installing a
-# single file and therefore being able to run the pipeline tests.
-COPY --chown=app:app requirments.txt .
-RUN pip install --no-warn-script-location -r requirments.txt
+# Install as root into the SYSTEM site-packages, not ~/.local. The entrypoint
+# switches users at the last moment, so a per-user install would land in
+# /root/.local and be invisible to `app`.
+COPY requirments.txt .
+RUN pip install -r requirments.txt
 
 COPY --chown=app:app . .
 
@@ -29,8 +28,7 @@ ENV PORT=8000
 
 EXPOSE 8000
 
-# `python -m uvicorn`, not the bare `uvicorn` console script. pip installs as
-# the non-root `app` user, which puts entry-point scripts in ~/.local/bin —
-# not on PATH — so the bare command fails with "uvicorn: not found". Going
-# through the interpreter sidesteps PATH entirely.
-CMD ["sh", "-c", "python -m uvicorn pipeline.app:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Stays root just long enough to chown the runtime-mounted volume, then execs
+# the server as uid 1000. See docker-entrypoint-pipeline.sh.
+COPY --chmod=0755 docker-entrypoint-pipeline.sh /usr/local/bin/
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint-pipeline.sh"]

@@ -39,13 +39,37 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _diagnose(db_path: str, parent: str, exc: Exception) -> str:
+    """Turn an opaque open failure into something you can act on."""
+    target = parent or "."
+    facts = [
+        f"DB_PATH={db_path!r}",
+        f"dir={target!r}",
+        f"dir_exists={os.path.isdir(target)}",
+        f"dir_writable={os.access(target, os.W_OK)}",
+        f"running_as_uid={os.getuid()}",
+    ]
+    if os.path.isdir(target):
+        st = os.stat(target)
+        facts.append(f"dir_owner_uid={st.st_uid}")
+        facts.append(f"dir_mode={oct(st.st_mode & 0o777)}")
+    return f"cannot open database ({exc}). " + " ".join(facts)
+
+
 @contextmanager
 def connect(settings=None):
     settings = settings or get_settings()
     parent = os.path.dirname(settings.db_path)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
-    conn = sqlite3.connect(settings.db_path, timeout=10, check_same_thread=False)
+    try:
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        conn = sqlite3.connect(settings.db_path, timeout=10, check_same_thread=False)
+    except (sqlite3.OperationalError, OSError) as exc:
+        # SQLite says only "unable to open database file" whether the directory
+        # is missing, unwritable, or read-only. On a mounted volume it is nearly
+        # always a permissions problem, so report what we can actually see —
+        # otherwise the deploy log gives you nothing to act on.
+        raise sqlite3.OperationalError(_diagnose(settings.db_path, parent, exc)) from exc
     conn.row_factory = sqlite3.Row
     try:
         conn.execute("PRAGMA journal_mode=WAL")
