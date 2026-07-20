@@ -1,0 +1,17 @@
+.git
+.gitignore
+.idea
+.claude
+.env
+**/__pycache__/
+**/*.pyc
+Dockerfile
+docker-compose.yml
+.dockerignore
+README.md
+utils/
+tests/
+pytest.ini
+.pytest_cache/
+.coverage
+.github/

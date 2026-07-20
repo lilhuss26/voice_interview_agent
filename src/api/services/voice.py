@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import tempfile
+import threading
 import time
 
 import edge_tts
@@ -9,7 +10,24 @@ from faster_whisper import WhisperModel
 
 logger = logging.getLogger("interview.voice")
 
-_whisper = WhisperModel("base", device="cpu", compute_type="int8")
+_whisper = None
+_whisper_lock = threading.Lock()
+
+
+def _get_whisper() -> WhisperModel:
+    """Load the Whisper model on first use.
+
+    Building it at import time made src.api.app unimportable without a ~150MB
+    weight download, and it delayed every cold start that never transcribes
+    anything. The Dockerfile still pre-bakes the weights, so inside the image
+    this is a cache hit, not a download.
+    """
+    global _whisper
+    if _whisper is None:
+        with _whisper_lock:
+            if _whisper is None:  # re-check: socketio runs async_mode="threading"
+                _whisper = WhisperModel("base", device="cpu", compute_type="int8")
+    return _whisper
 
 
 async def _tts_bytes(text: str) -> bytes:
@@ -42,7 +60,7 @@ def audio_to_text(audio_bytes: bytes) -> str:
     #  - vad_filter=True                  strip trailing silence/noise that makes Whisper loop
     #                                     (the "postgres postgres" repetition hallucination)
     #  - condition_on_previous_text=False don't carry a repeated phrase forward
-    segments, info = _whisper.transcribe(
+    segments, info = _get_whisper().transcribe(
         path,
         language="en",
         vad_filter=True,
