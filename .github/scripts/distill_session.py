@@ -20,10 +20,34 @@ Inputs come from env (set by the workflow):
 
 import json
 import os
+import re
 import subprocess
 import sys
 from collections import Counter
 from datetime import datetime, timezone
+
+# Output cap per command (last-N chars — errors surface at the end). Errors get a
+# larger window than routine commands, but both are bounded so the artifact stays
+# small.
+_OUTPUT_CAP_OK = 2000
+_OUTPUT_CAP_ERR = 4000
+
+# Token/key shapes to redact from any captured text. Deliberately greedy on the
+# side of over-redaction — leaking a live credential into an artifact is far worse
+# than blanking a lookalike. Length floors keep short probe output (e.g. a `wc -c`
+# byte count) from matching.
+_SECRET_PATTERNS = (
+    re.compile(r"ghp_[A-Za-z0-9]{20,}"),
+    re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
+    re.compile(r"gho_[A-Za-z0-9]{20,}"),
+    re.compile(r"sk-ant-[A-Za-z0-9\-_]{20,}"),
+    re.compile(r"(?i)bearer\s+[A-Za-z0-9\-._~+/]{20,}=*"),
+    re.compile(r"(?i)token\s+[A-Za-z0-9\-._~+/]{20,}=*"),
+)
+
+# Env vars whose literal values must never appear in the artifact, even if they
+# don't match a pattern above.
+_SECRET_ENV_NAMES = ("GH_PAT", "GH_TOKEN", "GITHUB_TOKEN", "ANTHROPIC_API_KEY")
 
 SCHEMA_KEYS = (
     "issue",
@@ -94,6 +118,96 @@ def _iter_tool_uses(messages):
                 yield block
 
 
+def _result_text(content):
+    """Flatten a tool_result's `content` (str, or list of blocks) to text."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict):
+                if isinstance(block.get("text"), str):
+                    parts.append(block["text"])
+                elif isinstance(block.get("content"), str):
+                    parts.append(block["content"])
+            elif isinstance(block, str):
+                parts.append(block)
+        return "\n".join(parts)
+    return str(content)
+
+
+def _collect_tool_results(messages):
+    """Map tool_use_id -> {"output": str, "is_error": bool}.
+
+    tool_result blocks live in `user`-type messages and reference the command
+    that produced them via `tool_use_id`.
+    """
+    results = {}
+    for msg in messages:
+        if not isinstance(msg, dict) or msg.get("type") != "user":
+            continue
+        content = (msg.get("message") or {}).get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") != "tool_result":
+                continue
+            tid = block.get("tool_use_id")
+            if tid is None:
+                continue
+            results[tid] = {
+                "output": _result_text(block.get("content")),
+                "is_error": bool(block.get("is_error")),
+            }
+    return results
+
+
+def _scrub(text):
+    """Redact anything resembling a token/key. Passes None through unchanged."""
+    if not text:
+        return text
+    for name in _SECRET_ENV_NAMES:
+        val = os.environ.get(name)
+        if val and len(val) >= 8:
+            text = text.replace(val, "***REDACTED***")
+    for pat in _SECRET_PATTERNS:
+        text = pat.sub("***REDACTED***", text)
+    return text
+
+
+def _truncate(text, is_error):
+    """Keep the last N chars (errors surface at the end); mark if cut."""
+    if text is None:
+        return None
+    cap = _OUTPUT_CAP_ERR if is_error else _OUTPUT_CAP_OK
+    if len(text) <= cap:
+        return text
+    return "...[truncated]\n" + text[-cap:]
+
+
+def _bash_commands(tool_uses, tool_results):
+    """Pair each Bash command with its (truncated, scrubbed) output."""
+    out = []
+    for tu in tool_uses:
+        if tu.get("name") != "Bash" or not isinstance(tu.get("input"), dict):
+            continue
+        res = tool_results.get(tu.get("id"))
+        if res is None:
+            output, is_error = None, False
+        else:
+            output, is_error = res["output"], res["is_error"]
+        out.append(
+            {
+                "cmd": _scrub(tu["input"].get("command", "")),
+                "output": _scrub(_truncate(output, is_error)),
+                "is_error": is_error,
+            }
+        )
+    return out
+
+
 def _git_files_changed(base):
     """`git diff --name-only base...HEAD`; [] on any failure."""
     base = base or "master"
@@ -155,8 +269,6 @@ def _derive_outcome(result, tool_uses, blob):
 
 def _find_pr(blob):
     """Best-effort PR URL/number from the run text; None if absent."""
-    import re
-
     m = re.search(r"https://github\.com/[^\s\"']+/pull/\d+", blob)
     return m.group(0) if m else None
 
@@ -179,11 +291,8 @@ def main():
     tools_used = Counter(
         tu.get("name", "unknown") for tu in tool_uses
     )
-    bash_commands = [
-        tu.get("input", {}).get("command", "")
-        for tu in tool_uses
-        if tu.get("name") == "Bash" and isinstance(tu.get("input"), dict)
-    ]
+    tool_results = _collect_tool_results(messages)
+    bash_commands = _bash_commands(tool_uses, tool_results)
 
     record = {
         "issue": int(issue) if issue and issue.isdigit() else issue,
