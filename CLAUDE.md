@@ -77,25 +77,46 @@ When the task is clear and you implement it, the PR you open MUST have all of:
 - **Label:** `auto-pr` applied to the PR.
 - **Author:** the PR is opened by the automation identity (the PAT/bot).
 
-### Creating the PR (order and failure handling)
+### Creating the PR (authentication, order, failure handling)
+
+**Authentication — this matters.** The environment injects a restricted
+`GITHUB_TOKEN`/`GH_TOKEN` that has **no writable scopes**; if `gh` picks it up,
+`gh pr create` fails with *"token has no writable scopes"*. The working token is
+in the **`GH_PAT`** environment variable (a classic PAT with full `repo` scope).
+Force `gh` to use it by prefixing **every** `gh` command that writes with
+`GH_TOKEN="$GH_PAT"`, which overrides any inherited token for that one process:
+
+```
+GH_TOKEN="$GH_PAT" gh pr create ...
+```
+
+Never echo, print, or paste the token itself.
 
 Create the PR and the label as **two separate steps** — never with a single
-`gh pr create --label`, because a label problem must not stop the PR:
+`gh pr create --label`, because a label problem must not stop the PR. Prefer
+`--body-file` over `--body` so a multi-line body is passed cleanly:
 
 1. Open the PR **without** any `--label`:
-   `gh pr create --title "[auto] <issue title>" --body "…" --head auto-task/issue-<N> --base master`
-2. Then apply the label separately:
-   `gh pr edit <PR-number> --add-label auto-pr`.
+   `GH_TOKEN="$GH_PAT" gh pr create --title "[auto] <issue title>" --body-file <file> --head auto-task/issue-<N> --base master`
+2. Then apply the label separately (best effort):
+   `GH_TOKEN="$GH_PAT" gh pr edit <PR-number> --add-label auto-pr`.
    If **only** this label step fails, that is acceptable — the PR already exists;
    report it and stop. Do not treat a label failure as a PR failure.
 
 If **`gh pr create` itself fails**, do not retry the same command silently:
 
-- **Print the full stderr** of the failed `gh` command so the real error is
-  visible in the run log.
-- Run `gh auth status` and print its full output.
-- Re-run the failing `gh pr create` once, still **without** `--label`, and print
-  its full stderr too.
+- **Print the full stderr** of the failed command so the real error is visible in
+  the run log.
+- Run `GH_TOKEN="$GH_PAT" gh auth status` and print its full output.
+- As a fallback, create the PR straight through the API with the PAT explicit
+  (this bypasses `gh`'s token precedence entirely):
+  ```
+  gh api repos/lilhuss26/voice_interview_agent/pulls \
+    -H "Authorization: token $GH_PAT" \
+    -f title="[auto] <issue title>" \
+    -f head="auto-task/issue-<N>" -f base="master" \
+    -f body="$(cat <file>)"
+  ```
 - If it still fails, **stop** and leave the report showing that stderr. Do **not**
   apply `needs-clarification` (the issue was fine; this is a tooling failure),
   and do not loop probing the environment.
