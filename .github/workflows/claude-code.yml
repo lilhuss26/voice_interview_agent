@@ -1,0 +1,105 @@
+name: claude-code
+
+# Phase B: when an `auto-task` issue is opened, run Claude Code to implement it
+# and open a contract-shaped PR (or flag `needs-clarification` if too vague).
+# Runs entirely in Actions — nothing here touches Railway or the pipeline/ service.
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  implement:
+    # Only act on auto-task issues. The whole job is skipped otherwise, so no
+    # Claude minutes are spent on ordinary issues.
+    if: contains(github.event.issue.labels.*.name, 'auto-task')
+    runs-on: ubuntu-latest
+    # The real ceiling. --max-turns 25 bounds the agent; this bounds the wall clock.
+    timeout-minutes: 25
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Idempotent upsert. auto-task already exists (Phase A creates it live);
+      # these two are the Phase B labels the agent and PR need.
+      - name: Ensure automation labels exist
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMATION_PAT }}
+        run: |
+          gh label create auto-pr --color 0e8a16 \
+            --description "PR opened by Claude Code automation" --force
+          gh label create needs-clarification --color d93f0b \
+            --description "auto-task issue too unclear to implement" --force
+
+      - id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          # A CLASSIC PAT, not the default GITHUB_TOKEN: a PR opened by the
+          # default token does NOT retrigger workflows, so tests.yml would never
+          # run on the automated PR. The PAT identity is also the PR author.
+          github_token: ${{ secrets.AUTOMATION_PAT }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # A prompt is supplied, so the action runs immediately (no @claude).
+          prompt: |
+            Implement GitHub issue #${{ github.event.issue.number }} in this
+            repository. The issue's title and body are provided to you in the
+            event context.
+
+            Obey CLAUDE.md at the repo root at all times — it is the source of
+            truth for scope, tests, method, and the output contract. In summary:
+
+            1. FIRST follow the CLAUDE.md METHOD: before touching any code, write
+               a plan document at docs/plans/issue-${{ github.event.issue.number }}.md
+               with (1) scope, (2) files to modify, (3) implementation plan,
+               (4) tasks.
+
+            2. If you cannot form a coherent plan because the issue is too
+               unclear or underspecified, REFUSE-AND-SIGNAL: add the
+               `needs-clarification` label to issue
+               #${{ github.event.issue.number }} and STOP. Do not write a plan
+               file, do not write code, do not open a PR.
+
+            3. Otherwise, implement the change:
+               - Do NOT modify anything under pipeline/. Change only the Flask
+                 app (run.py, src/, agent/, ui/) and its tests.
+               - Never weaken, skip, xfail, or delete tests. Fix the code instead.
+               - Run `pytest` and make sure it is green before opening the PR.
+               - Create the branch auto-task/issue-${{ github.event.issue.number }}.
+               - Commit BOTH the code changes AND the plan document.
+               - Open a PR with:
+                   * title: [auto] <the issue title>
+                   * body containing `Closes #${{ github.event.issue.number }}`
+                     and a link to docs/plans/issue-${{ github.event.issue.number }}.md
+                   * the `auto-pr` label applied.
+          claude_args: |
+            --model claude-sonnet-5
+            --max-turns 25
+            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git:*),Bash(pytest:*),Bash(pip install:*),Bash(ls:*),Bash(cat:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(head:*),Bash(tail:*)"
+
+      # Distill the run into a compact JSON. if: always() so a failed or
+      # max-turns run still produces the artifact.
+      - name: Distill session log
+        if: always()
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          BRANCH_NAME: ${{ steps.claude.outputs.branch_name }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          python .github/scripts/distill_session.py
+
+      - name: Upload session artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-${{ github.event.issue.number }}-session
+          # The raw execution log AND the distilled JSON. if-no-files-found:
+          # warn — on a max-turns overflow the execution file may not exist, but
+          # the distilled JSON always does.
+          path: |
+            ${{ steps.claude.outputs.execution_file }}
+            issue-${{ github.event.issue.number }}-session.json
+          if-no-files-found: warn
