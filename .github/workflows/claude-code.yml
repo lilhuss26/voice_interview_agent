@@ -70,6 +70,12 @@ jobs:
 
       - id: claude
         uses: anthropics/claude-code-action@v1
+        # gh reads its token from GH_TOKEN. `git push` works off the credential
+        # checkout persists on the remote, but `gh pr create` has no token
+        # without this, so the agent cannot open the PR. Same value the label
+        # step at the top already uses successfully.
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMATION_PAT }}
         with:
           # A CLASSIC PAT, not the default GITHUB_TOKEN: a PR opened by the
           # default token does NOT retrigger workflows, so tests.yml would never
@@ -112,7 +118,7 @@ jobs:
                    * the `auto-pr` label applied.
           claude_args: |
             --model claude-sonnet-5
-            --max-turns 25
+            --max-turns 30
             --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git:*),Bash(pytest:*),Bash(pip install:*),Bash(ls:*),Bash(cat:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(head:*),Bash(tail:*)"
 
       # Distill the run into a compact JSON. if: always() so a failed or
