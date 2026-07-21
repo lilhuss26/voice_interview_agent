@@ -34,6 +34,21 @@ jobs:
           gh label create needs-clarification --color d93f0b \
             --description "auto-task issue too unclear to implement" --force
 
+      # Write the issue text to a file OUTSIDE the repo, sourced from env vars.
+      # Env-carried (not inlined into the prompt) so a malicious title/body can
+      # neither break the YAML nor be spliced into a shell command — the values
+      # are only ever read as quoted env vars. The agent Reads this file in its
+      # first turn instead of burning turns trying to fetch the issue.
+      - name: Prepare issue context
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          {
+            printf '# %s\n\n' "$ISSUE_TITLE"
+            printf '%s\n' "$ISSUE_BODY"
+          } > "$RUNNER_TEMP/issue-context.md"
+
       - id: claude
         uses: anthropics/claude-code-action@v1
         with:
@@ -45,8 +60,10 @@ jobs:
           # A prompt is supplied, so the action runs immediately (no @claude).
           prompt: |
             Implement GitHub issue #${{ github.event.issue.number }} in this
-            repository. The issue's title and body are provided to you in the
-            event context.
+            repository. The issue's title and full body have been written to the
+            file ${{ runner.temp }}/issue-context.md — Read that file FIRST to
+            get the task description before doing anything else. (It is a scratch
+            file outside the repo; do not commit it.)
 
             Obey CLAUDE.md at the repo root at all times — it is the source of
             truth for scope, tests, method, and the output contract. In summary:
