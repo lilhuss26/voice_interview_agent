@@ -20,8 +20,27 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
+    # tests.yml sets HF_HUB_OFFLINE so the lazy Whisper load fails fast instead
+    # of silently downloading ~150MB and stalling the run; mirror it so the
+    # pytest the agent must run before opening the PR behaves the same.
+    #
+    # NOTE: tests.yml also sets ANTHROPIC_API_KEY=test-key, but it is deliberately
+    # NOT set here — a job-level value would shadow the real ${{ secrets.
+    # ANTHROPIC_API_KEY }} the action needs to call Claude. conftest.py already
+    # os.environ.setdefault()s it, so pytest collection is covered regardless.
+    env:
+      HF_HUB_OFFLINE: "1"
     steps:
       - uses: actions/checkout@v4
+
+      # The runner has a bare python3 but none of the project deps, so any
+      # `pytest` the agent runs would error and it would burn turns retrying.
+      # Install the suite up front, mirroring tests.yml.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirments.txt
 
       # Idempotent upsert. auto-task already exists (Phase A creates it live);
       # these two are the Phase B labels the agent and PR need.
