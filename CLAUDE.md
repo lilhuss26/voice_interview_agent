@@ -39,6 +39,10 @@ Only after the plan doc exists do you implement, following that plan.
 
 ## Refuse-and-signal
 
+`needs-clarification` is **only** for an issue you judge too unclear to
+implement, decided **before** you write any code. It is a statement about the
+issue, not about a tooling failure.
+
 If the issue is too unclear, contradictory, or underspecified to produce a
 coherent plan, do **not** guess. Instead:
 
@@ -46,6 +50,12 @@ coherent plan, do **not** guess. Instead:
 - **Stop.** Write no plan document, no code, and open no PR.
 
 A vague issue must end with the label applied and nothing else changed.
+
+**Never** apply `needs-clarification` because of a failure *after* you have
+started implementing — a `pytest`, `git`, or `gh` error is not an unclear issue.
+If something fails at the PR step after the code is written, leave the issue
+**unlabeled** and stop (see the Output contract for how to handle a failing
+`gh pr create`).
 
 ## Conventions
 
@@ -66,3 +76,26 @@ When the task is clear and you implement it, the PR you open MUST have all of:
   (it is part of the change, not a build artifact).
 - **Label:** `auto-pr` applied to the PR.
 - **Author:** the PR is opened by the automation identity (the PAT/bot).
+
+### Creating the PR (order and failure handling)
+
+Create the PR and the label as **two separate steps** — never with a single
+`gh pr create --label`, because a label problem must not stop the PR:
+
+1. Open the PR **without** any `--label`:
+   `gh pr create --title "[auto] <issue title>" --body "…" --head auto-task/issue-<N> --base master`
+2. Then apply the label separately:
+   `gh pr edit <PR-number> --add-label auto-pr`.
+   If **only** this label step fails, that is acceptable — the PR already exists;
+   report it and stop. Do not treat a label failure as a PR failure.
+
+If **`gh pr create` itself fails**, do not retry the same command silently:
+
+- **Print the full stderr** of the failed `gh` command so the real error is
+  visible in the run log.
+- Run `gh auth status` and print its full output.
+- Re-run the failing `gh pr create` once, still **without** `--label`, and print
+  its full stderr too.
+- If it still fails, **stop** and leave the report showing that stderr. Do **not**
+  apply `needs-clarification` (the issue was fine; this is a tooling failure),
+  and do not loop probing the environment.
